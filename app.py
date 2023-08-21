@@ -59,7 +59,8 @@ for generated_date in date_gen:
             output_json[generated_date][row.find("th").text.split()[0]] = row.find("td").text.strip()
 
 # ファイルに書き出して終了
-with open(os.path.join("output", "output.json"), 'w', encoding='utf-8') as f:
+output_filename = 'output.json'
+with open(os.path.join("output", output_filename), 'w', encoding='utf-8') as f:
     json.dump(output_json, f, ensure_ascii=False, indent=4)
 
 
