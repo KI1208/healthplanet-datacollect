@@ -36,7 +36,7 @@ response_1 = session.post(
     )
 
 # 日付回数分アクセスを実施、自分の場合は2021/8/11
-initial_date = datetime(2023, 8, 18)
+initial_date = datetime(2026, 2, 13)
 stop_date = datetime(2021, 8, 11)
 
 date_gen = date_generator(initial_date, stop_date)
