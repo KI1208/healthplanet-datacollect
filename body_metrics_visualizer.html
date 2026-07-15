@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ボディデータ・可視化ダッシュボード</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- PapaParse (CSVパース用) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans JP', sans-serif;
+    }
+    .drag-over {
+      border-color: #3b82f6;
+      background-color: #eff6ff;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <!-- ヘッダー -->
+    <header class="mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-200 pb-6">
+      <div>
+        <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Body Metrics Dashboard</h1>
+        <p class="text-sm text-slate-500 mt-1">手元のCSVファイルをアップロードして、体組成データを美しく可視化します。</p>
+      </div>
+    </header>
+
+    <!-- ファイルアップロードエリア -->
+    <section id="upload-section" class="mb-8">
+      <div id="drop-zone" class="border-2 border-dashed border-slate-300 rounded-2xl p-8 text-center bg-white hover:border-blue-500 transition-colors cursor-pointer shadow-sm">
+        <div class="space-y-3">
+          <svg class="mx-auto h-12 w-12 text-slate-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <div class="flex justify-center text-sm text-slate-600">
+            <label class="relative cursor-pointer rounded-md font-semibold text-blue-600 hover:text-blue-500 focus-within:outline-none">
+              <span>CSVファイルを選択</span>
+              <input id="file-input" type="file" accept=".csv" class="sr-only">
+            </label>
+            <p class="pl-1">またはドラッグ＆ドロップ</p>
+          </div>
+          <p class="text-xs text-slate-400">「日付, 体重, 体脂肪率, 筋肉量...」の形式のCSVファイルに対応</p>
+          
+          <!-- 文字コード指定オプション -->
+          <div class="inline-flex items-center gap-2 mt-4 bg-slate-100 px-3 py-1.5 rounded-lg text-xs text-slate-600">
+            <span>文字コード:</span>
+            <select id="encoding-select" class="bg-white border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none">
+              <option value="UTF-8">UTF-8 (自動判定失敗時)</option>
+              <option value="Shift_JIS" selected>Shift_JIS / CP932</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ダッシュボードエリア (初期状態は非表示) -->
+    <div id="dashboard-area" class="hidden grid grid-cols-1 lg:grid-cols-4 gap-8">
+      
+      <!-- コントロールパネル (左側) -->
+      <aside class="lg:col-span-1 space-y-6">
+        <!-- メトリック選択 -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h2 class="text-lg font-semibold text-slate-950 mb-4 flex items-center gap-2">
+            📊 メトリック設定
+          </h2>
+          
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-500 mb-1">メイン指標 (左軸)</label>
+              <select id="primary-metric" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <!-- 動的にCSVヘッダーから生成 -->
+              </select>
+            </div>
+            <!-- 移動平均線の設定 -->
+            <div class="space-y-2 pt-2 border-t border-slate-100">
+              <div class="flex items-center gap-2">
+                <input type="checkbox" id="show-ma" class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" checked>
+                <label for="show-ma" class="text-xs font-medium text-slate-600 cursor-pointer">1週間の移動平均線を表示</label>
+              </div>
+              <div class="flex items-center gap-2">
+                <input type="checkbox" id="show-ma-only" class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                <label for="show-ma-only" class="text-xs font-medium text-slate-600 cursor-pointer">移動平均線のみ表示（プロットを非表示）</label>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-500 mb-1">比較用指標 (右軸)</label>
+              <select id="secondary-metric" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="none" selected>なし</option>
+                <!-- 動的にCSVヘッダーから生成 -->
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 期間選択 -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <h2 class="text-lg font-semibold text-slate-950 mb-4 flex items-center gap-2">
+            📅 期間設定
+          </h2>
+          
+          <!-- クイック選択 -->
+          <div class="grid grid-cols-2 gap-2 mb-4">
+            <button onclick="setPeriod(30)" class="period-btn bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs py-2 px-3 rounded-lg font-medium transition-colors">1ヶ月</button>
+            <button onclick="setPeriod(90)" class="period-btn bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs py-2 px-3 rounded-lg font-medium transition-colors">3ヶ月</button>
+            <button onclick="setPeriod(180)" class="period-btn bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs py-2 px-3 rounded-lg font-medium transition-colors">6ヶ月</button>
+            <button onclick="setPeriod(365)" class="period-btn bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs py-2 px-3 rounded-lg font-medium transition-colors">1年</button>
+            <button onclick="setPeriod('all')" id="btn-all" class="period-btn col-span-2 bg-blue-500 hover:bg-blue-600 text-white text-xs py-2 px-3 rounded-lg font-medium transition-colors">全期間</button>
+          </div>
+
+          <div class="border-t border-slate-100 pt-4 space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-500 mb-1">開始日</label>
+              <input type="date" id="start-date" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-500 mb-1">終了日</label>
+              <input type="date" id="end-date" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- メインビジュアル & 分析カード (右側) -->
+      <main class="lg:col-span-3 space-y-6">
+        <!-- KPIサマリーカード -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="kpi-container">
+          <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">最新測定値</p>
+            <p class="text-2xl font-bold text-slate-900 mt-1" id="kpi-latest">-</p>
+            <p class="text-[10px] text-slate-400 mt-1" id="kpi-latest-date">-</p>
+          </div>
+          <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">期間内 平均値</p>
+            <p class="text-2xl font-bold text-slate-900 mt-1" id="kpi-avg">-</p>
+          </div>
+          <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">期間内 最大値</p>
+            <p class="text-2xl font-bold text-emerald-600 mt-1" id="kpi-max">-</p>
+          </div>
+          <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">期間内 最小値</p>
+            <p class="text-2xl font-bold text-rose-600 mt-1" id="kpi-min">-</p>
+          </div>
+        </div>
+
+        <!-- チャートエリア -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <div class="h-[450px] w-full">
+            <canvas id="metricsChart"></canvas>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    let parsedData = []; // CSVから読み込んだパース済みデータ
+    let chartInstance = null; // Chart.jsのインスタンス
+
+    // ----------------------------------------------------
+    // ドラッグ＆ドロップ及びファイル選択イベント
+    // ----------------------------------------------------
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const encodingSelect = document.getElementById('encoding-select');
+
+    // ドラッグオーバー時のエフェクト
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('drag-over');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        processFile(files[0]);
+      }
+    });
+
+    dropZone.addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        processFile(e.target.files[0]);
+      }
+    });
+
+    // ----------------------------------------------------
+    // ファイル処理・パース
+    // ----------------------------------------------------
+    function processFile(file) {
+      const encoding = encodingSelect.value;
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        const text = e.target.result;
+        
+        // PapaParseでCSVをパース
+        Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true,
+          dynamicTyping: true,
+          complete: function(results) {
+            handleParsedData(results.data, results.meta.fields);
+          },
+          error: function(err) {
+            alert('CSVの解析に失敗しました: ' + err.message);
+          }
+        });
+      };
+
+      reader.readAsText(file, encoding);
+    }
+
+    // ----------------------------------------------------
+    // パースデータの処理
+    // ----------------------------------------------------
+    function handleParsedData(data, fields) {
+      if (!data || data.length === 0) {
+        alert('有効なデータが見つかりませんでした。');
+        return;
+      }
+
+      // 「日付」に相当する列と、その他の数値列を特定
+      const dateField = fields.find(f => f.includes('日付') || f.toLowerCase() === 'date');
+      if (!dateField) {
+        alert('「日付」列が見つかりません。CSVの1列目に「日付」または「date」列を含めてください。');
+        return;
+      }
+
+      // 数値として扱えるメトリックフィールドを抽出
+      const metricFields = fields.filter(f => f !== dateField);
+
+      // データのクレンジングと整形
+      parsedData = data.map(row => {
+        let rawDate = String(row[dateField]).trim();
+        let formattedDate = "";
+
+        // YYYYMMDD の形式を YYYY-MM-DD に変換
+        if (rawDate.length === 8 && !rawDate.includes('-') && !rawDate.includes('/')) {
+          formattedDate = `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`;
+        } else {
+          // それ以外の一般的な日付フォーマットへの対応を試みる
+          const dObj = new Date(rawDate);
+          if (!isNaN(dObj.getTime())) {
+            formattedDate = dObj.toISOString().split('T')[0];
+          } else {
+            formattedDate = rawDate;
+          }
+        }
+
+        const newRow = { _dateStr: formattedDate };
+        metricFields.forEach(field => {
+          // 空セル(null)やNaN以外の数値のみを登録
+          const val = row[field];
+          newRow[field] = (val !== null && !isNaN(Number(val))) ? Number(val) : null;
+        });
+
+        return newRow;
+      })
+      // 日付に有効な値がある行のみ残し、日付の昇順にソート
+      .filter(row => row._dateStr && !isNaN(Date.parse(row._dateStr)))
+      .sort((a, b) => Date.parse(a._dateStr) - Date.parse(b._dateStr));
+
+      if (parsedData.length === 0) {
+        alert('有効な測定データ行が見つかりませんでした（各行の日付や数値データを確認してください）。');
+        return;
+      }
+
+      // コントロールの初期化
+      initControls(metricFields);
+      
+      // ダッシュボードを表示
+      document.getElementById('dashboard-area').classList.remove('hidden');
+      
+      // 初期描画
+      updateDashboard();
+    }
+
+    // ----------------------------------------------------
+    // コントロール類のセットアップ
+    // ----------------------------------------------------
+    function initControls(metricFields) {
+      const primarySelect = document.getElementById('primary-metric');
+      const secondarySelect = document.getElementById('secondary-metric');
+
+      // セレクトボックスのクリア
+      primarySelect.innerHTML = '';
+      secondarySelect.innerHTML = '<option value="none">なし</option>';
+
+      // オプション追加
+      metricFields.forEach((field, index) => {
+        const opt1 = document.createElement('option');
+        opt1.value = field;
+        opt1.textContent = field;
+        if (index === 0) opt1.selected = true; // 1つ目をデフォルトに
+        primarySelect.appendChild(opt1);
+
+        const opt2 = document.createElement('option');
+        opt2.value = field;
+        opt2.textContent = field;
+        // 2つ目の指標があればデフォルト選択
+        if (metricFields.length > 1 && index === 1) {
+          opt2.selected = true;
+        }
+        secondarySelect.appendChild(opt2);
+      });
+
+      // 日付範囲の初期設定 (全期間)
+      const minDate = parsedData[0]._dateStr;
+      const maxDate = parsedData[parsedData.length - 1]._dateStr;
+
+      const startInput = document.getElementById('start-date');
+      const endInput = document.getElementById('end-date');
+      
+      startInput.min = minDate;
+      startInput.max = maxDate;
+      startInput.value = minDate;
+
+      endInput.min = minDate;
+      endInput.max = maxDate;
+      endInput.value = maxDate;
+
+      // イベントリスナー登録
+      primarySelect.onchange = updateDashboard;
+      secondarySelect.onchange = updateDashboard;
+      document.getElementById('show-ma').onchange = updateDashboard;
+      document.getElementById('show-ma-only').onchange = updateDashboard;
+      startInput.onchange = updateDashboard;
+      endInput.onchange = updateDashboard;
+    }
+
+    // ----------------------------------------------------
+    // 期間クイック設定
+    // ----------------------------------------------------
+    function setPeriod(days) {
+      if (parsedData.length === 0) return;
+      
+      const endInput = document.getElementById('end-date');
+      const startInput = document.getElementById('start-date');
+      
+      const maxDateObj = new Date(parsedData[parsedData.length - 1]._dateStr);
+      endInput.value = maxDateObj.toISOString().split('T')[0];
+
+      if (days === 'all') {
+        startInput.value = parsedData[0]._dateStr;
+      } else {
+        const startDateObj = new Date(maxDateObj);
+        startDateObj.setDate(startDateObj.getDate() - days);
+        
+        // CSVの開始日より前にならないように調整
+        const minDateObj = new Date(parsedData[0]._dateStr);
+        if (startDateObj < minDateObj) {
+          startInput.value = parsedData[0]._dateStr;
+        } else {
+          startInput.value = startDateObj.toISOString().split('T')[0];
+        }
+      }
+
+      // ボタンのスタイル変更
+      document.querySelectorAll('.period-btn').forEach(btn => {
+        btn.classList.remove('bg-blue-500', 'text-white');
+        btn.classList.add('bg-slate-100', 'text-slate-700');
+      });
+      event.currentTarget.classList.remove('bg-slate-100', 'text-slate-700');
+      event.currentTarget.classList.add('bg-blue-500', 'text-white');
+
+      updateDashboard();
+    }
+
+    // ----------------------------------------------------
+    // ダッシュボード＆チャートの更新処理
+    // ----------------------------------------------------
+    function updateDashboard() {
+      if (parsedData.length === 0) return;
+
+      const pMetric = document.getElementById('primary-metric').value;
+      const sMetric = document.getElementById('secondary-metric').value;
+      const startDate = document.getElementById('start-date').value;
+      const endDate = document.getElementById('end-date').value;
+
+      // 選択期間でデータをフィルタリング (対象メトリックが有効な行を基本とする)
+      const filtered = parsedData.filter(row => {
+        return row._dateStr >= startDate && row._dateStr <= endDate;
+      });
+
+      if (filtered.length === 0) {
+        // データがない場合はチャートをクリア
+        if (chartInstance) chartInstance.destroy();
+        resetKPI();
+        return;
+      }
+
+      // メイン指標のKPI計算 (値が存在する最新・平均・最大・最小)
+      const pValues = filtered.map(row => row[pMetric]).filter(v => v !== null);
+      
+      if (pValues.length > 0) {
+        // 最新値
+        const latestRow = [...filtered].reverse().find(row => row[pMetric] !== null);
+        document.getElementById('kpi-latest').textContent = latestRow[pMetric];
+        document.getElementById('kpi-latest-date').textContent = `${latestRow._dateStr} 測定`;
+
+        // 平均
+        const avg = pValues.reduce((sum, v) => sum + v, 0) / pValues.length;
+        document.getElementById('kpi-avg').textContent = avg.toFixed(1);
+
+        // 最大・最小
+        document.getElementById('kpi-max').textContent = Math.max(...pValues);
+        document.getElementById('kpi-min').textContent = Math.min(...pValues);
+      } else {
+        resetKPI();
+      }
+
+      // チャート描画データの作成
+      const labels = filtered.map(row => row._dateStr);
+      const datasets = [];
+
+      const showMAOnly = document.getElementById('show-ma-only').checked;
+
+      // メイン指標データセット (左軸)
+      datasets.push({
+        label: pMetric,
+        data: filtered.map(row => row[pMetric]),
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.6)', // プロットの点が見えやすいように少し濃く
+        borderWidth: 0,       // 線を描画しない
+        showLine: false,      // 各プロットを線で結ばない (ドットのみにする)
+        pointRadius: showMAOnly ? 0 : 4, // 移動平均のみ表示する場合はプロット点も非表示にする
+        pointHoverRadius: showMAOnly ? 0 : 6,
+        spanGaps: true,
+        yAxisID: 'y'
+      });
+
+      // 1週間の移動平均（直近7点の平均）の計算
+      const showMA = document.getElementById('show-ma').checked;
+      if (showMA) {
+        const maData = [];
+        for (let i = 0; i < filtered.length; i++) {
+          let sum = 0;
+          let count = 0;
+          for (let j = i; j >= 0 && count < 7; j--) {
+            if (filtered[j][pMetric] !== null) {
+              sum += filtered[j][pMetric];
+              count++;
+            }
+          }
+          maData.push(count > 0 ? (sum / count) : null);
+        }
+        datasets.push({
+          label: `${pMetric} (1週間移動平均)`,
+          data: maData,
+          borderColor: '#10b981', // エメラルドグリーン
+          borderWidth: 2,
+          borderDash: [5, 4], // 点線
+          pointRadius: 0,     // ドットは非表示にして線をスッキリさせる
+          tension: 0.3,
+          spanGaps: true,
+          yAxisID: 'y'
+        });
+      }
+
+      // 比較用指標データセット (右軸)
+      const hasSecondary = sMetric !== 'none' && sMetric !== pMetric;
+      if (hasSecondary) {
+        datasets.push({
+          label: sMetric,
+          data: filtered.map(row => row[sMetric]),
+          borderColor: '#f43f5e',
+          backgroundColor: 'rgba(244, 63, 94, 0.6)',
+          borderWidth: 0,
+          showLine: false,      // 各プロットを線で結ばない (ドットのみにする)
+          pointRadius: showMAOnly ? 0 : 4,
+          pointHoverRadius: showMAOnly ? 0 : 6,
+          spanGaps: true,
+          yAxisID: 'y1'
+        });
+      }
+
+      // チャート描画
+      const ctx = document.getElementById('metricsChart').getContext('2d');
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: datasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                font: { family: 'Inter, "Noto Sans JP"' }
+              }
+            },
+            tooltip: {
+              padding: 12,
+              backgroundColor: 'rgba(15, 23, 42, 0.9)',
+              titleFont: { family: 'Inter, "Noto Sans JP"', size: 13 },
+              bodyFont: { family: 'Inter, "Noto Sans JP"', size: 13 },
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: {
+                maxTicksLimit: 12,
+                font: { family: 'Inter, "Noto Sans JP"', size: 11 }
+              }
+            },
+            y: {
+              type: 'linear',
+              display: true,
+              position: 'left',
+              title: {
+                display: true,
+                text: pMetric,
+                font: { family: 'Inter, "Noto Sans JP"', weight: 'bold' }
+              },
+              grid: { color: '#f1f5f9' },
+              ticks: { font: { family: 'Inter, "Noto Sans JP"' } }
+            },
+            y1: {
+              type: 'linear',
+              display: hasSecondary,
+              position: 'right',
+              title: {
+                display: true,
+                text: sMetric,
+                font: { family: 'Inter, "Noto Sans JP"', weight: 'bold' }
+              },
+              grid: { drawOnChartArea: false }, // 右軸のグリッド線は非表示にして見やすく
+              ticks: { font: { family: 'Inter, "Noto Sans JP"' } }
+            }
+          }
+        }
+      });
+    }
+
+    function resetKPI() {
+      document.getElementById('kpi-latest').textContent = '-';
+      document.getElementById('kpi-latest-date').textContent = '-';
+      document.getElementById('kpi-avg').textContent = '-';
+      document.getElementById('kpi-max').textContent = '-';
+      document.getElementById('kpi-min').textContent = '-';
+    }
+  </script>
+</body>
+</html>
